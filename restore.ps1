@@ -1,12 +1,12 @@
-﻿#Requires -Version 5.1
+﻿# Requires -Version 5.1
 
-$BatchSize = 40
-$PollInterval = 2
+$BatchSize 		= 40	# Восстанавливать по 40 файлов за запрос (не более 40)
+$PollInterval 	= 2		# Пауза между запросами (сек)
 
-$TotalRestored = 0
-$BatchNumber = 0
 
-#--------------------------------------------------------
+
+#--------------------------------------------------
+
 function Initialize-Session {
 
 	$script:Session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
@@ -20,17 +20,17 @@ function Initialize-Session {
 
 	$raw = Get-Content -LiteralPath $cookiesFile -Raw
 
-	# ------------------------------------------------------------
-	# User-Agent
-	# ------------------------------------------------------------
+
+
+	#----- User-Agent -----
 
 	if ($raw -match '\$session\.UserAgent\s*=\s*"([^"]+)"') {
 		$script:Session.UserAgent = $matches[1]
 	}
 
-	# ------------------------------------------------------------
-	# Cookies
-	# ------------------------------------------------------------
+
+
+	#----- Cookies -----
 
 	$cookieRegex = '\$session\.Cookies\.Add\(\(New-Object System\.Net\.Cookie\("([^"]+)",\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)"\)\)\)'
 
@@ -48,9 +48,9 @@ function Initialize-Session {
 		$script:Session.Cookies.Add($cookie)
 	}
 
-	# ------------------------------------------------------------
-	# Headers
-	# ------------------------------------------------------------
+
+
+	#----- Headers -----
 
 	$headerBlock = [regex]::Match(
 		$raw,
@@ -74,9 +74,9 @@ function Initialize-Session {
 		$script:Headers.Remove("Content-Length")
 	}
 
-	# ------------------------------------------------------------
-	# SK
-	# ------------------------------------------------------------
+
+
+	#----- SK -----
 
 	if ($raw -match 'sk.*?([0-9a-f]{40}:\d+)') {
 		$script:SK = $matches[1]
@@ -85,9 +85,9 @@ function Initialize-Session {
 		throw "Не удалось найти SK"
 	}
 
-	# ------------------------------------------------------------
-	# ConnectionId
-	# ------------------------------------------------------------
+
+
+	#----- ConnectionId -----
 
 	if ($raw -match 'connection_id.*?(\d{15,})') {
 		$script:ConnectionId = $matches[1]
@@ -97,16 +97,19 @@ function Initialize-Session {
 	}
 
 	Write-Host ""
-	Write-Host "===== Session initialized ====="
-	Write-Host "Cookies	  : $($script:Session.Cookies.Count)"
-	Write-Host "Headers	  : $($script:Headers.Count)"
-	Write-Host "SK		   : $script:SK"
-	Write-Host "ConnectionId : $script:ConnectionId"
-	Write-Host "==============================="
+	Write-Host "===== Сессия загружена ====="
+	Write-Host "Cookies		: $($script:Session.Cookies.Count)"
+	Write-Host "Headers		: $($script:Headers.Count)"
+	Write-Host "SK		: $script:SK"
+	Write-Host "ConnectionId	: $script:ConnectionId"
+	Write-Host "============================"
 	Write-Host ""
 }
 
-#--------------------------------------------------------
+
+
+#--------------------------------------------------
+
 function Invoke-YandexApi {
 
 	param(
@@ -145,7 +148,10 @@ function Invoke-YandexApi {
 	return $response
 }
 
-#--------------------------------------------------------
+
+
+#--------------------------------------------------
+
 function Get-TrashBatch {
 
 	param([int]$Amount)
@@ -160,7 +166,10 @@ function Get-TrashBatch {
 	}
 }
 
-#--------------------------------------------------------
+
+
+#--------------------------------------------------
+
 function Start-BulkRestore {
 
 	param($Resources)
@@ -182,7 +191,10 @@ function Start-BulkRestore {
 
 }
 
-#--------------------------------------------------------
+
+
+#--------------------------------------------------
+
 function Wait-BulkRestore {
 
 	param($OperationResult)
@@ -191,7 +203,16 @@ function Wait-BulkRestore {
 		return
 	}
 
-	$oids = @($OperationResult.items)
+	$oids = @(
+		$OperationResult |
+		ForEach-Object { $_.oid } |
+		Where-Object { $_ }
+	)
+
+	if ($oids.Count -eq 0) {
+		Write-Warning "Не удалось получить oid операции."
+		return
+	}
 
 	if ($oids.Count -eq 0) {
 		return
@@ -212,7 +233,7 @@ function Wait-BulkRestore {
 
 			$item = $null
 			if ($status) {
-				$item = $status.PSObject.Properties[$oid].Value
+				$item = $status.$oid
 			}
 
 			if ($item -and $item.state -eq "COMPLETED") {
@@ -240,10 +261,17 @@ function Wait-BulkRestore {
 
 }
 
+
+
+#--------------------------------------------------
+
+$TotalRestored 	= 0
+$BatchNumber 	= 0
+
 Initialize-Session
 
 Write-Host ""
-Write-Host "===== Restore Yandex Trash ====="
+Write-Host "===== Yandex Trash Restore ====="
 Write-Host ""
 
 while ($true) {
@@ -254,15 +282,17 @@ while ($true) {
 		$batch = Get-TrashBatch -Amount $BatchSize
 	}
 	catch {
-		Write-Host "Ошибка получения списка файлов:"
+		Write-Host ""
+		Write-Warning "Ошибка получения списка файлов:"
 		Write-Host $_
-		Write-Host "Возможно, сессия устарела. Попробуйте обновить session.txt (см. readme)"
+		Write-Host ""
+		Write-Warning "Возможно, сессия устарела. Попробуйте обновить session.txt (см. README.md)"
 		break
 	}
 
 	if ((@($batch.resources)).Count -eq 0) {
 		Write-Host ""
-		Write-Host "Корзина пуста."
+		Write-Host "Корзина пуста"
 		break
 	}
 
@@ -283,6 +313,6 @@ while ($true) {
 
 Write-Host ""
 Write-Host "================================="
-Write-Host "Готово."
+Write-Host "Готово"
 Write-Host "Всего восстановлено: $TotalRestored"
 Write-Host "================================="
