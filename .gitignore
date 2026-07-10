@@ -1,0 +1,14 @@
+# development assets
+network/
+screenshots/
+
+# release packages
+releases/
+
+# personal data
+session.txt
+
+# windows
+Thumbs.db
+Desktop.ini
+*.log
